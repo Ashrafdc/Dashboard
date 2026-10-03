@@ -4030,12 +4030,32 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
       +'<label>Subject</label><input id="ntSub" value="'+esc(subjectFor(disc,docs))+'">'
       +'<label>Intro</label><textarea id="ntBody" style="min-height:90px;font-family:system-ui,sans-serif;font-size:13px">'+esc(defaultIntro(disc,docs,h))+'</textarea>'
       +'<label>Preview</label><div style="border:1px solid var(--line,#e4e8ee);border-radius:8px;padding:10px;overflow-x:auto;max-height:240px;overflow-y:auto" id="ntPrev"></div>'
-      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy as table</button><button class="nt-tb" id="ntSend">Open in email app</button></div>');
+      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy as table</button><button class="nt-tb" id="ntSend">Open in email app</button><button class="nt-tb primary" id="ntNow">Send now</button></div>');
     const cur=()=>buildEmail(document.getElementById('ntBody').value,docs);
     const refresh=()=>{document.getElementById('ntPrev').innerHTML=cur().html;};
     refresh(); document.getElementById('ntBody').addEventListener('input',refresh);
     document.getElementById('ntX').onclick=closeModal;
     document.getElementById('ntCopy').onclick=()=>{const m=cur();copyRich(m.html,m.text);};
+    document.getElementById('ntNow').onclick=async()=>{
+      const to=document.getElementById('ntTo').value.trim();
+      if(!to){toast('Enter a recipient email');return;}
+      let pw=''; try{pw=sessionStorage.getItem('ntPw')||'';}catch(e){}
+      if(!pw){pw=prompt('Enter notification password:')||''; if(!pw)return;}
+      const btn=document.getElementById('ntNow'); btn.disabled=true; btn.textContent='Sending…';
+      const m=cur();
+      try{
+        const r=await fetch('/api/notify',{method:'POST',headers:{'Content-Type':'application/json','x-notify-password':pw},
+          body:JSON.stringify({discipline:disc,to,cc:document.getElementById('ntCc2').value.trim(),
+            subject:document.getElementById('ntSub').value,body:m.text,html:m.html})});
+        const j=await r.json().catch(()=>({}));
+        if(r.status===401){try{sessionStorage.removeItem('ntPw');}catch(e){} toast('Wrong password'); btn.disabled=false; btn.textContent='Send now'; return;}
+        if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+        try{sessionStorage.setItem('ntPw',pw);}catch(e){}
+        docs.forEach(d=>logSent(d.doc)); renderRegister(false); closeModal(); toast('Email sent to '+to);
+      }catch(err){
+        btn.disabled=false; btn.textContent='Send now'; toast('Failed: '+err.message);
+      }
+    };
     document.getElementById('ntSend').onclick=()=>{
       const to=document.getElementById('ntTo').value.trim();
       if(!to){toast('Enter a recipient email');return;}
