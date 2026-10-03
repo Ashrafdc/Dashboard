@@ -3976,25 +3976,74 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
     const d=ALL.find(x=>x.doc===docNo); if(!d)return;
     openGroup(d.disc,[d]);
   }
+  function statusOf(d){const i=overdueInfo(d);return i.state==='overdue'?'Overdue':(i.state==='ontime'?'On time':'—');}
+  function buildTableHtml(docs){
+    const th='style="border:1px solid #c9d1dc;background:#2a63c7;color:#fff;padding:6px 8px;text-align:left;font-size:12px;white-space:nowrap"';
+    const td='style="border:1px solid #c9d1dc;padding:6px 8px;font-size:12px;vertical-align:top"';
+    const rows=docs.map((d,i)=>{
+      const el=daysElapsed(d), st=statusOf(d), link=d.tid?TID_BASE+d.tid+TID_TAIL:'';
+      const stc=st==='Overdue'?'color:#d0402c;font-weight:700':'color:#1f9d55;font-weight:700';
+      return '<tr><td '+td+'>'+(i+1)+'</td><td '+td+'>'+esc(d.doc)+'</td><td '+td+'>'+esc(d.rev||'00')+'</td><td '+td+'>'+esc(d.title)+'</td><td '+td+'>'+esc(d.type)+'</td><td '+td+'>'+esc(d.date||'—')+'</td><td '+td.replace('";','text-align:center;"').replace('"; vertical','"; vertical')+'>'+(el==null?'—':el)+'</td><td '+td.slice(0,-1)+';'+stc+'">'+st+'</td><td '+td+'>'+(link?'<a href="'+esc(link)+'">Open</a>':'')+'</td></tr>';
+    }).join('');
+    return '<table style="border-collapse:collapse;font-family:Segoe UI,Arial,sans-serif;width:100%"><thead><tr>'
+      +['#','Document No.','Rev','Title','Type','Submitted','Days Pending','Status','Link'].map(h=>'<th '+th+'>'+h+'</th>').join('')
+      +'</tr></thead><tbody>'+rows+'</tbody></table>';
+  }
+  function buildTableText(docs){
+    return docs.map((d,i)=>{
+      const el=daysElapsed(d), link=d.tid?TID_BASE+d.tid+TID_TAIL:'';
+      return (i+1)+'. '+d.doc+'  | Rev '+(d.rev||'00')+' | '+d.type+' | Submitted '+(d.date||'—')+' | '+(el==null?'—':el+'d')+' pending | '+statusOf(d)
+        +'\n   '+(d.title||'')+(link?'\n   '+link:'');
+    }).join('\n\n');
+  }
+  function defaultIntro(disc,docs,head){
+    const od=docs.filter(d=>overdueInfo(d).state==='overdue').length;
+    return 'Dear '+(head&&head.name?head.name:disc+' Discipline Head')+',\n\nThe following '+docs.length+' '+disc+' document(s) are currently Under Review and require your action'+(od?' ('+od+' overdue)':'')+'. Please complete the review at your earliest convenience.';
+  }
+  function buildEmail(intro,docs){
+    const sig='Regards,\nDocument Control – '+(document.title||'AliDocMaster')+'\n'+new Date().toLocaleDateString();
+    const html='<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#0f1c2e">'
+      +'<p>'+esc(intro).replace(/\n/g,'<br>')+'</p>'+buildTableHtml(docs)
+      +'<p style="margin-top:14px">'+esc(sig).replace(/\n/g,'<br>')+'</p></div>';
+    const text=intro+'\n\n'+buildTableText(docs)+'\n\n'+sig;
+    return {html,text};
+  }
+  function subjectFor(disc,docs){
+    const od=docs.filter(d=>overdueInfo(d).state==='overdue').length;
+    return '[Action Required] '+docs.length+' document(s) Under Review – '+disc+(od?' ('+od+' overdue)':'');
+  }
+  async function copyRich(html,text){
+    try{
+      if(window.ClipboardItem&&navigator.clipboard&&navigator.clipboard.write){
+        await navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})})]);
+        toast('Copied – paste into your email');return;
+      }
+    }catch(e){}
+    copy(text);
+  }
   function openGroup(disc,docs){
     const heads=loadHeads(), h=heads[disc]||{};
-    const m=buildMessage(disc,docs,h);
-    modal('<h3>Notify '+esc(disc)+' – '+docs.length+' document(s)</h3><div class="sub">Edit the message if needed, then open your email app or copy it.</div>'
+    modal('<h3>Notify '+esc(disc)+' – '+docs.length+' document(s)</h3><div class="sub">Edit the intro if needed. The document table is added automatically.</div>'
       +'<label>To</label><input id="ntTo" value="'+esc(h.email||'')+'" placeholder="discipline.head@company.com">'
       +(h.email?'':'<div class="nt-warn">No email saved for '+esc(disc)+' – type one here or use “Discipline Heads”.</div>')
       +'<label>Cc</label><input id="ntCc2" value="'+esc(heads.__cc||'')+'">'
-      +'<label>Subject</label><input id="ntSub" value="'+esc(m.subject)+'">'
-      +'<label>Message</label><textarea id="ntBody">'+esc(m.body)+'</textarea>'
-      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy message</button><button class="nt-tb primary" id="ntSend">Open in email</button></div>');
+      +'<label>Subject</label><input id="ntSub" value="'+esc(subjectFor(disc,docs))+'">'
+      +'<label>Intro</label><textarea id="ntBody" style="min-height:90px;font-family:system-ui,sans-serif;font-size:13px">'+esc(defaultIntro(disc,docs,h))+'</textarea>'
+      +'<label>Preview</label><div style="border:1px solid var(--line,#e4e8ee);border-radius:8px;padding:10px;overflow-x:auto;max-height:240px;overflow-y:auto" id="ntPrev"></div>'
+      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy as table</button><button class="nt-tb" id="ntSend">Open in email app</button></div>');
+    const cur=()=>buildEmail(document.getElementById('ntBody').value,docs);
+    const refresh=()=>{document.getElementById('ntPrev').innerHTML=cur().html;};
+    refresh(); document.getElementById('ntBody').addEventListener('input',refresh);
     document.getElementById('ntX').onclick=closeModal;
-    document.getElementById('ntCopy').onclick=()=>copy('Subject: '+document.getElementById('ntSub').value+'\n\n'+document.getElementById('ntBody').value);
+    document.getElementById('ntCopy').onclick=()=>{const m=cur();copyRich(m.html,m.text);};
     document.getElementById('ntSend').onclick=()=>{
       const to=document.getElementById('ntTo').value.trim();
       if(!to){toast('Enter a recipient email');return;}
-      window.location.href=mailto(to,document.getElementById('ntSub').value,document.getElementById('ntBody').value,document.getElementById('ntCc2').value.trim());
+      window.location.href=mailto(to,document.getElementById('ntSub').value,cur().text,document.getElementById('ntCc2').value.trim());
       docs.forEach(d=>logSent(d.doc));renderRegister(false);
     };
   }
+
 
   /* ---- Bulk: all Under Review docs in current filter, grouped by discipline ---- */
   function openBulk(){
