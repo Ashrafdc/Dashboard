@@ -4043,7 +4043,12 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
       const sub=document.getElementById('ntSub').value, m=cur();
       if(!to){toast('Enter a recipient email');return;}
       /* Keep the link short (long links fail); full table goes to clipboard to paste */
-      const short=document.getElementById('ntBody').value+'\n\n(Paste the document table here: Ctrl+V)';
+      const full=m.text;
+      const intro=document.getElementById('ntBody').value;
+      const base=(kind==='out'?'https://outlook.office.com/mail/deeplink/compose?to=':'https://mail.google.com/mail/?view=cm&fs=1&to=')+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+(kind==='out'?'&subject=':'&su=')+encodeURIComponent(sub)+'&body=';
+      /* Use the full list when the link is short enough, so no paste is needed */
+      const fits=(base+encodeURIComponent(full)).length<=7000;
+      const short=fits?full:intro+'\n\n(Too many documents for the link – press Ctrl+V to paste the table)';
       let u='';
       if(kind==='out') u='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&subject='+encodeURIComponent(sub)+'&body='+encodeURIComponent(short);
       else u='https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&su='+encodeURIComponent(sub)+'&body='+encodeURIComponent(short);
