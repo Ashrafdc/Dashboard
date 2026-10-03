@@ -3961,12 +3961,14 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
       +'<div class="nt-row" style="font-weight:700;font-size:12px"><span>Discipline</span><span>Name</span><span>Email(s)</span></div>'
       +discs.map((x,i)=>'<div class="nt-row"><span>'+esc(x)+'</span><input data-n="'+i+'" placeholder="Name" value="'+esc((heads[x]||{}).name)+'"><input data-e="'+i+'" placeholder="name@company.com" value="'+esc((heads[x]||{}).email)+'"></div>').join('')
       +'<label>Always CC (optional)</label><input id="ntCc" value="'+esc(heads.__cc||'')+'">'
+      +'<label>Send URL (Google Apps Script web app – for the “Send now” button)</label><input id="ntUrl" placeholder="https://script.google.com/macros/s/.../exec" value="'+esc(heads.__url||'')+'">'
       +'<div class="nt-actions"><button class="nt-tb" id="ntX">Cancel</button><button class="nt-tb primary" id="ntSave">Save</button></div>');
     document.getElementById('ntX').onclick=closeModal;
     document.getElementById('ntSave').onclick=()=>{
       const h={};
       discs.forEach((x,i)=>{const n=document.querySelector('[data-n="'+i+'"]').value.trim(),e=document.querySelector('[data-e="'+i+'"]').value.trim();if(n||e)h[x]={name:n,email:e};});
       h.__cc=document.getElementById('ntCc').value.trim();
+      h.__url=document.getElementById('ntUrl').value.trim();
       saveHeads(h);closeModal();toast('Saved');
     };
   }
@@ -4030,7 +4032,7 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
       +'<label>Subject</label><input id="ntSub" value="'+esc(subjectFor(disc,docs))+'">'
       +'<label>Intro</label><textarea id="ntBody" style="min-height:90px;font-family:system-ui,sans-serif;font-size:13px">'+esc(defaultIntro(disc,docs,h))+'</textarea>'
       +'<label>Preview</label><div style="border:1px solid var(--line,#e4e8ee);border-radius:8px;padding:10px;overflow-x:auto;max-height:240px;overflow-y:auto" id="ntPrev"></div>'
-      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy as table</button><button class="nt-tb primary" id="ntOut">Outlook Web</button><button class="nt-tb" id="ntGm">Gmail</button><button class="nt-tb" id="ntWa">WhatsApp</button><button class="nt-tb" id="ntSend">Email app</button></div>');
+      +'<div class="nt-actions"><button class="nt-tb" id="ntX">Close</button><button class="nt-tb" id="ntCopy">Copy as table</button><button class="nt-tb primary" id="ntNow">Send now</button><button class="nt-tb" id="ntOut">Outlook</button><button class="nt-tb" id="ntGm">Gmail</button></div>');
     const cur=()=>buildEmail(document.getElementById('ntBody').value,docs);
     const refresh=()=>{document.getElementById('ntPrev').innerHTML=cur().html;};
     refresh(); document.getElementById('ntBody').addEventListener('input',refresh);
@@ -4038,24 +4040,41 @@ table.reg thead th.iv-clicked{ animation: ivPulseRing .4s ease-out; --iv-ring: r
     document.getElementById('ntCopy').onclick=()=>{const m=cur();copyRich(m.html,m.text);};
     const openWeb=(kind)=>{
       const to=document.getElementById('ntTo').value.trim(), cc=document.getElementById('ntCc2').value.trim();
-      const sub=document.getElementById('ntSub').value, txt=cur().text;
-      if(kind!=='wa'&&!to){toast('Enter a recipient email');return;}
+      const sub=document.getElementById('ntSub').value, m=cur();
+      if(!to){toast('Enter a recipient email');return;}
+      /* Keep the link short (long links fail); full table goes to clipboard to paste */
+      const short=document.getElementById('ntBody').value+'\n\n(Paste the document table here: Ctrl+V)';
       let u='';
-      if(kind==='out') u='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&subject='+encodeURIComponent(sub)+'&body='+encodeURIComponent(txt);
-      else if(kind==='gm') u='https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&su='+encodeURIComponent(sub)+'&body='+encodeURIComponent(txt);
-      else u='https://wa.me/?text='+encodeURIComponent(sub+'\n\n'+txt);
-      window.open(u,'_blank','noopener');
+      if(kind==='out') u='https://outlook.office.com/mail/deeplink/compose?to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&subject='+encodeURIComponent(sub)+'&body='+encodeURIComponent(short);
+      else u='https://mail.google.com/mail/?view=cm&fs=1&to='+encodeURIComponent(to)+(cc?'&cc='+encodeURIComponent(cc):'')+'&su='+encodeURIComponent(sub)+'&body='+encodeURIComponent(short);
+      /* open first (needs the click), then copy */
+      const w=window.open(u,'_blank');
+      copyRich(m.html,m.text);
+      if(!w){ window.location.href=u; }
       docs.forEach(d=>logSent(d.doc));renderRegister(false);
+    };
+    document.getElementById('ntNow').onclick=async()=>{
+      const to=document.getElementById('ntTo').value.trim();
+      if(!to){toast('Enter a recipient email');return;}
+      const url=(loadHeads().__url||'').trim();
+      if(!url){toast('First set the Send URL: click “Discipline Heads”');return;}
+      let pw=''; try{pw=sessionStorage.getItem('ntPw')||'';}catch(e){}
+      if(!pw){pw=prompt('Enter send password:')||''; if(!pw)return;}
+      const btn=document.getElementById('ntNow'); btn.disabled=true; btn.textContent='Sending…';
+      const m=cur();
+      const payload=JSON.stringify({password:pw,to,cc:document.getElementById('ntCc2').value.trim(),subject:document.getElementById('ntSub').value,text:m.text,html:m.html});
+      try{
+        const r=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload});
+        const j=await r.json();
+        if(!j.ok){ if(j.error==='Unauthorized'){try{sessionStorage.removeItem('ntPw');}catch(e){}} throw new Error(j.error||'Failed'); }
+        try{sessionStorage.setItem('ntPw',pw);}catch(e){}
+        docs.forEach(d=>logSent(d.doc)); renderRegister(false); closeModal(); toast('Email sent to '+to);
+      }catch(err){
+        btn.disabled=false; btn.textContent='Send now'; toast('Failed: '+err.message);
+      }
     };
     document.getElementById('ntOut').onclick=()=>openWeb('out');
     document.getElementById('ntGm').onclick=()=>openWeb('gm');
-    document.getElementById('ntWa').onclick=()=>openWeb('wa');
-    document.getElementById('ntSend').onclick=()=>{
-      const to=document.getElementById('ntTo').value.trim();
-      if(!to){toast('Enter a recipient email');return;}
-      window.location.href=mailto(to,document.getElementById('ntSub').value,cur().text,document.getElementById('ntCc2').value.trim());
-      docs.forEach(d=>logSent(d.doc));renderRegister(false);
-    };
   }
 
 
